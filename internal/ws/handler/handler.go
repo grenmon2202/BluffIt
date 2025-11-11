@@ -16,10 +16,16 @@ func CreateLobby(data requests.CreateLobbyRequest) response.ResponseBody {
 
 	lobby := globalLobbyStore.AddLobby(hostPlayer)
 	fmt.Println("Created lobby:", lobby.ID)
+
+	response_data := map[string]any{
+		"lobby":  lobby,
+		"player": hostPlayer,
+	}
+
 	return response.ResponseBody{
 		Message: "Lobby created successfully",
 		Status:  201,
-		Data:    lobby,
+		Data:    response_data,
 	}
 }
 
@@ -40,7 +46,7 @@ func FetchLobby(data requests.FetchLobbyRequest) response.ResponseBody {
 }
 
 func JoinLobby(data requests.JoinLobbyRequest) response.ResponseBody {
-	success, message := globalLobbyStore.JoinLobbyByCode(data.LobbyCode, data.PlayerName)
+	success, message, player := globalLobbyStore.JoinLobbyByCode(data.LobbyCode, data.PlayerName)
 
 	if !success {
 		return response.ResponseBody{
@@ -49,9 +55,14 @@ func JoinLobby(data requests.JoinLobbyRequest) response.ResponseBody {
 		}
 	}
 
+	response_data := map[string]any{
+		"player": player,
+	}
+
 	return response.ResponseBody{
 		Message: "Successfully joined lobby",
 		Status:  200,
+		Data:    response_data,
 	}
 }
 

@@ -45,6 +45,18 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
+		if msg.RequestID == "" {
+			fmt.Println("Missing RequestID in message")
+			res := response.ResponseBody{
+				Message: "Missing RequestID in message",
+				Status:  400,
+			}
+			if !sendResponse(ws, &res) {
+				return
+			}
+			continue
+		}
+
 		var res response.ResponseBody
 
 		switch msg.Type {
@@ -92,6 +104,8 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 				Status:  400,
 			}
 		}
+
+		res.RequestID = msg.RequestID
 
 		if !sendResponse(ws, &res) {
 			return

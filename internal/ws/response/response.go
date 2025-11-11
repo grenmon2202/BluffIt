@@ -1,7 +1,8 @@
 package response
 
 type ResponseBody struct {
-	Message string `json:"message"`
-	Status  int    `json:"status"`
-	Data    any    `json:"data,omitempty"`
+	Message   string `json:"message"`
+	Status    int    `json:"status"`
+	Data      any    `json:"data,omitempty"`
+	RequestID string `json:"requestId,omitempty"`
 }

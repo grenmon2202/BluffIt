@@ -3,8 +3,9 @@ package requests
 import "encoding/json"
 
 type Envelope struct {
-	Type string          `json:"Type"`
-	Data json.RawMessage `json:"Data"`
+	Type      string          `json:"Type"`
+	RequestID string          `json:"RequestID"`
+	Data      json.RawMessage `json:"Data"`
 }
 
 type CreateLobbyRequest struct {

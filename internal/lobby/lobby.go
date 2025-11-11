@@ -1,6 +1,8 @@
 package lobby
 
 import (
+	"math/rand"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -44,7 +46,7 @@ func (lobbyStore *LobbyStore) AddLobby(lobbyHost *player.Player) Lobby {
 		ID:          uuid.New().ID(),
 		Players:     &player.PlayerStore{},
 		Chats:       &chat.ChatStore{},
-		UniqueCode:  uuid.New().String(),
+		UniqueCode:  lobbyStore.GenerateUniqueLobbyCode(),
 		LobbyHostID: lobbyHost.ID,
 	}
 
@@ -80,7 +82,38 @@ func (lobbyStore *LobbyStore) GetLobbyByID(lobbyID uint32) (*Lobby, bool) {
 	return lobby, exists
 }
 
-func (lobbyStore *LobbyStore) JoinLobbyByCode(code string, name string) (bool, string) {
+func (lobbyStore *LobbyStore) GetLobbyByCode(code string) (*Lobby, bool) {
+	lobbyStore.mu.RLock()
+	defer lobbyStore.mu.RUnlock()
+
+	for _, lobby := range lobbyStore.lobbies {
+		if lobby.UniqueCode == code {
+			return lobby, true
+		}
+	}
+
+	return nil, false
+}
+
+func (lobbyStore *LobbyStore) GenerateUniqueLobbyCode() string {
+	const codeLength = 8
+	const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+	for {
+		var code strings.Builder
+		for i := 0; i < codeLength; i++ {
+			randomIndex := rand.Intn(len(charset))
+			code.WriteByte(charset[randomIndex])
+		}
+
+		generatedCode := code.String()
+		if _, exists := lobbyStore.GetLobbyByCode(generatedCode); !exists {
+			return generatedCode
+		}
+	}
+}
+
+func (lobbyStore *LobbyStore) JoinLobbyByCode(code string, name string) (bool, string, player.Player) {
 	lobbyStore.mu.RLock()
 	defer lobbyStore.mu.RUnlock()
 
@@ -94,15 +127,15 @@ func (lobbyStore *LobbyStore) JoinLobbyByCode(code string, name string) (bool, s
 	}
 
 	if foundLobby == nil {
-		return false, "Lobby not found"
+		return false, "Lobby not found", player.Player{}
 	}
 
 	if foundLobby.Players.CheckPlayerExistsByName(name) {
-		return false, "Player name already taken in this lobby"
+		return false, "Player name already taken in this lobby", player.Player{}
 	}
 
 	newPlayer := player.CreatePlayer(name, false)
 	foundLobby.Players.AddPlayer(newPlayer)
 
-	return true, "Successfully joined lobby"
+	return true, "Successfully joined lobby", *newPlayer
 }
