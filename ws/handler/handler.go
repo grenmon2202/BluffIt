@@ -5,13 +5,13 @@ import (
 
 	"github.com/grenmon2202/bluffit/internal/lobby"
 	"github.com/grenmon2202/bluffit/internal/player"
-	"github.com/grenmon2202/bluffit/internal/ws/requests"
-	"github.com/grenmon2202/bluffit/internal/ws/response"
+	"github.com/grenmon2202/bluffit/ws/schema/request"
+	"github.com/grenmon2202/bluffit/ws/schema/response"
 )
 
 var globalLobbyStore = lobby.NewLobbyStore()
 
-func CreateLobby(data requests.CreateLobbyRequest) response.ResponseBody {
+func CreateLobby(data request.CreateLobbyRequest) response.ResponseBody {
 	hostPlayer := player.CreatePlayer(data.LobbyHost, true)
 
 	lobby := globalLobbyStore.AddLobby(hostPlayer)
@@ -29,62 +29,72 @@ func CreateLobby(data requests.CreateLobbyRequest) response.ResponseBody {
 	}
 }
 
-func FetchLobby(data requests.FetchLobbyRequest) response.ResponseBody {
+func FetchLobby(data request.FetchLobbyRequest) (response.ResponseBody, lobby.Lobby) {
 	lobby, exists := globalLobbyStore.GetLobbyByID(data.LobbyID)
 	if !exists {
 		return response.ResponseBody{
 			Message: "Lobby not found",
 			Status:  404,
-		}
+		}, *lobby
 	}
 
 	return response.ResponseBody{
 		Message: "Lobby fetched successfully",
 		Status:  200,
 		Data:    *lobby,
-	}
+	}, *lobby
 }
 
-func JoinLobby(data requests.JoinLobbyRequest) response.ResponseBody {
-	success, message, player := globalLobbyStore.JoinLobbyByCode(data.LobbyCode, data.PlayerName)
+func JoinLobby(data request.JoinLobbyRequest) (response.ResponseBody, lobby.Lobby) {
+	success, message, player, lobby := globalLobbyStore.JoinLobbyByCode(data.LobbyCode, data.PlayerName)
 
 	if !success {
 		return response.ResponseBody{
 			Message: message,
 			Status:  400,
-		}
+		}, lobby
 	}
 
 	response_data := map[string]any{
 		"player": player,
+		"lobby":  lobby,
 	}
 
 	return response.ResponseBody{
 		Message: "Successfully joined lobby",
 		Status:  200,
 		Data:    response_data,
-	}
+	}, lobby
 }
 
-func SendMessage(data requests.SendMessageRequest) response.ResponseBody {
+func LeaveLobby(data request.LeaveLobbyRequest) (response.ResponseBody, lobby.Lobby) {
 	lobby, exists := globalLobbyStore.GetLobbyByID(data.LobbyID)
 	if !exists {
 		return response.ResponseBody{
 			Message: "Lobby not found",
 			Status:  404,
-		}
+		}, *lobby
 	}
 
-	success, message := lobby.AddChatMessage(data.Content, data.SenderID)
-	if !success {
+	if !lobby.Players.CheckPlayerExistsByID(data.PlayerID) {
 		return response.ResponseBody{
-			Message: message,
-			Status:  400,
-		}
+			Message: "Player not found in the lobby",
+			Status:  404,
+		}, *lobby
+	}
+
+	lobby.Players.RemovePlayerByID(data.PlayerID)
+
+	if lobby.LobbyHostID == data.PlayerID {
+		globalLobbyStore.RemoveLobbyByID(lobby.ID)
+		return response.ResponseBody{
+			Message: "Host has left the lobby. Lobby closed.",
+			Status:  200,
+		}, *lobby
 	}
 
 	return response.ResponseBody{
-		Message: "Message sent successfully",
+		Message: "Successfully left the lobby",
 		Status:  200,
-	}
+	}, *lobby
 }

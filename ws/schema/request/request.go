@@ -1,4 +1,4 @@
-package requests
+package request
 
 import "encoding/json"
 
@@ -21,8 +21,7 @@ type JoinLobbyRequest struct {
 	PlayerName string `json:"playerName"`
 }
 
-type SendMessageRequest struct {
+type LeaveLobbyRequest struct {
 	LobbyID  uint32 `json:"lobbyId"`
-	SenderID uint32 `json:"senderId"`
-	Content  string `json:"content"`
+	PlayerID uint32 `json:"playerId"`
 }

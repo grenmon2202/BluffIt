@@ -1,3 +1,6 @@
+// TODO: Move request handling logic to broadcast/client.
+// Add subscription request, only allow subsequent requests to flow through if subscribed (Except CreateLobby and JoinLobby)
+
 package main
 
 import (
@@ -6,23 +9,18 @@ import (
 	"net/http"
 
 	"github.com/gorilla/websocket"
-	"github.com/grenmon2202/bluffit/internal/ws/handler"
-	"github.com/grenmon2202/bluffit/internal/ws/requests"
-	"github.com/grenmon2202/bluffit/internal/ws/response"
+	"github.com/grenmon2202/bluffit/internal/lobby"
+	"github.com/grenmon2202/bluffit/ws/broadcast"
+	"github.com/grenmon2202/bluffit/ws/handler"
+	"github.com/grenmon2202/bluffit/ws/schema/request"
+	"github.com/grenmon2202/bluffit/ws/schema/response"
 )
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-func sendResponse(ws *websocket.Conn, res any) bool {
-	err := ws.WriteJSON(res)
-	if err != nil {
-		fmt.Println("write error:", err)
-		return false
-	}
-	return true
-}
+var broadcast_hub = broadcast.CreateBroadcastHub()
 
 func handleConnections(w http.ResponseWriter, r *http.Request) {
 	ws, err := upgrader.Upgrade(w, r, nil)
@@ -31,10 +29,19 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	defer ws.Close()
+	client := broadcast.CreateBroadcastClient(ws)
+	go client.WritePump()
+
+	var lobbyID uint32
+	defer func() {
+		if lobbyID != 0 {
+			broadcast_hub.RemoveSubscriber(lobbyID, client)
+		}
+		ws.Close()
+	}()
 
 	for {
-		var msg requests.Envelope
+		var msg request.Envelope
 		err := ws.ReadJSON(&msg)
 		if err != nil {
 			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
@@ -51,9 +58,7 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 				Message: "Missing RequestID in message",
 				Status:  400,
 			}
-			if !sendResponse(ws, &res) {
-				return
-			}
+			client.Send(&res)
 			continue
 		}
 
@@ -61,7 +66,7 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 
 		switch msg.Type {
 		case "CreateLobby":
-			var body requests.CreateLobbyRequest
+			var body request.CreateLobbyRequest
 			if err := json.Unmarshal(msg.Data, &body); err != nil {
 				fmt.Println("unmarshal error:", err)
 				continue
@@ -69,32 +74,59 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 
 			res = handler.CreateLobby(body)
 
-		case "FetchLobby":
-			var body requests.FetchLobbyRequest
+		case "FetchLobby": // this is also used as a handshake
+			var body request.FetchLobbyRequest
 			if err := json.Unmarshal(msg.Data, &body); err != nil {
 				fmt.Println("unmarshal error:", err)
 				continue
 			}
+			var fetchedLobby lobby.Lobby
+			res, fetchedLobby = handler.FetchLobby(body)
 
-			res = handler.FetchLobby(body)
+			lobbyID = fetchedLobby.ID
+
+			if res.Status == 200 {
+				broadcast_hub.AddSubscriber(lobbyID, client)
+			}
 
 		case "JoinLobby":
-			var body requests.JoinLobbyRequest
+			var body request.JoinLobbyRequest
 			if err := json.Unmarshal(msg.Data, &body); err != nil {
 				fmt.Println("unmarshal error:", err)
 				continue
 			}
+			var joinedLobby lobby.Lobby
+			res, joinedLobby = handler.JoinLobby(body)
 
-			res = handler.JoinLobby(body)
+			lobbyID = joinedLobby.ID
 
-		case "SendMessage":
-			var body requests.SendMessageRequest
+			if res.Status == 200 {
+				broadcast_hub.AddSubscriber(lobbyID, client)
+				broadcast_hub.BroadcastToLobby(lobbyID, response.BroadcastBody{
+					Type:    "LobbyInfo",
+					Message: "New player joined the lobby",
+					Data:    res.Data.(map[string]any)["lobby"],
+				})
+			}
+
+		case "LeaveLobby":
+			var body request.LeaveLobbyRequest
 			if err := json.Unmarshal(msg.Data, &body); err != nil {
 				fmt.Println("unmarshal error:", err)
 				continue
 			}
+			var leftLobby lobby.Lobby
+			res, leftLobby = handler.LeaveLobby(body)
 
-			res = handler.SendMessage(body)
+			if res.Status == 200 && lobbyID != 0 {
+				broadcast_hub.BroadcastToLobby(lobbyID, response.BroadcastBody{
+					Type:    "LobbyInfo",
+					Message: "A player left the lobby",
+					Data:    leftLobby,
+				})
+				broadcast_hub.RemoveSubscriber(lobbyID, client)
+				return
+			}
 
 		default:
 			fmt.Println("Unknown message type:", msg.Type)
@@ -107,9 +139,7 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 
 		res.RequestID = msg.RequestID
 
-		if !sendResponse(ws, &res) {
-			return
-		}
+		client.Send(&res)
 	}
 }
 
